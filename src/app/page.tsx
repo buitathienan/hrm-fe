@@ -1,5 +1,9 @@
-import Image from "next/image";
+import LoginForm from "@/components/auth/login-form";
 
-export default function Home() {
-  return <div></div>;
+export default function Login() {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <LoginForm />
+    </div>
+  );
 }
