@@ -1,97 +1,89 @@
-import "server-only";
-
-import { ApiFailure, ApiPostSuccess } from "@/app/types/api-response.types";
-import { redirect } from "next/navigation";
-import { clearSession } from "@/features/auth/session";
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
-export type ApiPostResult<T> = ApiPostSuccess<T> | ApiFailure;
+export type ApiResult<T> = {
+  success: boolean;
+  data: T;
+  message?: string;
+  errors?: string;
+};
 
-export async function apiPost<T>(
-  endpoint: string,
-  body: unknown,
-): Promise<ApiPostResult<T>> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify(body),
-    cache: "no-store",
-  }).catch(() => null);
+export async function request<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<ApiResult<T>> {
+  const method = (init.method ?? "GET").toUpperCase();
 
-  if (!response) {
+  try {
+    const headers = new Headers(init.headers);
+
+    headers.set("Accept", "application/json");
+
+    if (
+      init.body &&
+      !(init.body instanceof FormData) &&
+      !headers.has("Content-Type")
+    ) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    const response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      return {
+        success: false,
+        data: null as T,
+        message: result?.message ?? "Something went wrong",
+        errors: result?.errors,
+      };
+    }
+
+    return {
+      success: true,
+      data: extractDataFromRespone(result) as T,
+      message: result?.message,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`[api] ${method} ${path} - ${message}`);
+
     return {
       success: false,
-      message: "Unable to connect to the server. Please try again.",
+      data: null as T,
+      message: "Could not reach the API",
     };
   }
-
-  if (response.status === 401) {
-    clearSession();
-    redirect("/");
-  }
-
-  const result = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return {
-      success: false,
-      message: result?.message ?? "Something went wrong. Please try again.",
-      errors: result?.errors,
-    };
-  }
-
-  return {
-    success: true,
-    data: result.data,
-  };
 }
 
-export async function apiGet(
-  endpoint: string,
-  query?: Record<string, string | number | boolean>,
+export const apiGet = <T>(path: string) => request<T>(path);
+export const apiPost = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: "POST", body: JSON.stringify(body) });
+export const apiPut = <T>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+export const apiPatch = <T>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+export const apiDelete = <T>(path: string) =>
+  request<T>(path, {
+    method: "DELETE",
+  });
+
+function extractDataFromRespone(
+  payload: Record<string, unknown>[] | Record<string, unknown>,
 ) {
-  const urlSearchParam = new URLSearchParams();
-  if (query) {
-    for (const key in query) {
-      urlSearchParam.append(key, String(query[key]));
-    }
+  if (!Array.isArray(payload)) {
+    return payload.data ?? payload;
   }
-
-  const res = await fetch(
-    `${API_URL}/${endpoint}${query ? `?${urlSearchParam.toString()}` : ``}`,
-    {
-      credentials: "include",
-    },
-  );
-
-  if (!res) {
-    return {
-      success: false,
-      message: "Unable to connect to the server. Please try again.",
-    };
-  }
-
-  if (res.status === 401) {
-    clearSession();
-    redirect("/");
-  }
-
-  const result = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    return {
-      success: false,
-      message: result?.message ?? "Something went wrong. Please try again.",
-      errors: result?.errors,
-    };
-  }
-
-  return {
-    success: true,
-    data: result.data,
-  };
+  return payload;
 }
